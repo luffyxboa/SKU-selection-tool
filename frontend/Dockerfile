@@ -33,5 +33,5 @@ COPY --from=builder /app/dist ./dist
 
 # Keep the container running lightweight by using serve
 # Note: -s enables "Single Page Application" mode to route all 404s back to index.html (for React Router)
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD serve -s dist -l ${PORT:-3000}
 EXPOSE 3000

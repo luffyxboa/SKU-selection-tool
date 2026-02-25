@@ -9,7 +9,7 @@ import io
 from app.api.dependencies.database import get_db
 from app.models.skus import SkuRecord, SkuCalculationCache
 from app.models.settings import GlobalSetting
-from app.models.channels import ChannelConfig, MarketChannelCTS
+from app.models.multidimensional import MarketConfig, MarketChannelConfig, MarketCategoryConfig
 from app.schemas.skus import SkuRecordResponse, SkuRecordCreate, SkuRecordUpdate
 from app.core.calculator import CalculationEngine
 
@@ -117,22 +117,27 @@ async def update_sku(sku_id: str, sku_update: SkuRecordUpdate, db: AsyncSession 
     await db.refresh(db_sku)
     return db_sku
 
+@router.post("/delete-bulk")
+async def delete_skus(sku_ids: List[str] = Body(...), db: AsyncSession = Depends(get_db)):
+    # First delete caches referring to these SKUs
+    await db.execute(SkuCalculationCache.__table__.delete().where(SkuCalculationCache.sku_id.in_(sku_ids)))
+    # Then delete the SKUs themselves
+    result = await db.execute(SkuRecord.__table__.delete().where(SkuRecord.sku_id.in_(sku_ids)))
+    await db.commit()
+    return {"status": "success", "deleted_count": result.rowcount}
+
 async def _build_calc_engine(db: AsyncSession) -> CalculationEngine:
     # Fetch all configs
     settings_res = await db.execute(select(GlobalSetting))
     settings = {s.setting_key: s.setting_value for s in settings_res.scalars().all()}
     
-    channels_res = await db.execute(select(ChannelConfig))
-    channels = {c.channel_name: {
-        "base_units_per_month": c.base_units_per_month,
-        "channel_weight": c.channel_weight,
-    } for c in channels_res.scalars().all()}
+    market_res = await db.execute(select(MarketConfig))
+    markets = {m.market_name: m for m in market_res.scalars().all()}
     
-    cts_res = await db.execute(select(MarketChannelCTS))
-    cts_matrix = {}
-    for cts in cts_res.scalars().all():
-        if cts.market_name not in cts_matrix:
-            cts_matrix[cts.market_name] = {}
-        cts_matrix[cts.market_name][cts.channel_name] = cts.total_cts_pct
+    channel_res = await db.execute(select(MarketChannelConfig))
+    market_channels = {f"{c.market_id}_{c.channel}": c for c in channel_res.scalars().all()}
+    
+    category_res = await db.execute(select(MarketCategoryConfig))
+    market_categories = {f"{c.market_id}_{c.channel}_{c.category}": c for c in category_res.scalars().all()}
         
-    return CalculationEngine(settings, channels, cts_matrix)
+    return CalculationEngine(settings, markets, market_channels, market_categories)

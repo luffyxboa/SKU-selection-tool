@@ -5,6 +5,7 @@ from typing import Dict, Any
 
 from app.api.dependencies.database import get_db
 from app.models.settings import GlobalSetting
+from app.services.recalculator import recalculate_all_skus
 
 router = APIRouter()
 
@@ -28,4 +29,5 @@ async def update_settings(payload: Dict[str, float], db: AsyncSession = Depends(
             db_setting.setting_value = value
             
     await db.commit()
+    await recalculate_all_skus(db)
     return {"message": "Success"}
